@@ -3,8 +3,11 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
+import tensorflow.compat.v1 as tf1
+tf1.disable_v2_behavior()
+import tensorflow_addons as tfa
 import argparse
 import glob
 import cv2
@@ -30,14 +33,14 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
     def discrim_conv(batch_input, out_channels, stride):
         padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]],\
             mode="CONSTANT")
-        return tf.layers.conv2d(padded_input, out_channels, kernel_size=4,\
+        return tf.compat.v1.layers.conv2d(padded_input, out_channels, kernel_size=4,\
             strides=(stride, stride), padding="valid",\
             kernel_initializer=tf.random_normal_initializer(0, 0.02))
 
     def discrim_conv_mask(batch_input, stride):
         padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]],\
             mode="CONSTANT")
-        return tf.layers.conv2d(padded_input, 1, kernel_size=4,\
+        return tf.compat.v1.layers.conv2d(padded_input, 1, kernel_size=4,\
             strides=(stride, stride), padding="valid",\
             kernel_initializer=tf.constant_initializer(1.0/16))
 
@@ -53,7 +56,7 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
         else:
             t = np.zeros((1,1024,1024,3))
 
-        texture = tf.get_variable("texture", dtype=tf.float32,
+        texture = tf.compat.v1.get_variable("texture", dtype=tf.float32,
           initializer=t.astype('float32'))
         return texture
 
@@ -64,7 +67,7 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
         layers = []
         layers_mask = []
 
-        with tf.variable_scope("layer_1"):
+        with tf.compat.v1.variable_scope("layer_1"):
             convolved = discrim_conv(input, ndf, stride=2)
             convolved_mask = discrim_conv_mask(mask, stride=2)
 
@@ -73,7 +76,7 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
             layers_mask.append(convolved_mask)
 
         for i in range(n_layers):
-            with tf.variable_scope("layer_%d" % (len(layers) + 1)):
+            with tf.compat.v1.variable_scope("layer_%d" % (len(layers) + 1)):
                 out_channels = ndf * min(2**(i+1), 2)
                 stride = 1 if i == n_layers - 1 else 2
                 convolved = discrim_conv(layers[-1],\
@@ -84,7 +87,7 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
                 layers.append(rectified)
                 layers_mask.append(convolved_mask)
 
-        with tf.variable_scope("layer_%d" % (len(layers) + 1)):
+        with tf.compat.v1.variable_scope("layer_%d" % (len(layers) + 1)):
             convolved = discrim_conv(rectified, out_channels=1, stride=1)
             convolved_mask = discrim_conv_mask(convolved_mask, stride=stride)
             output = tf.sigmoid(convolved)
@@ -92,12 +95,13 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
 
         return layers[-1], tf.dtypes.cast(convolved_mask > 0.1, tf.float32)
 
-    global_step = tf.train.get_or_create_global_step()
+    # global_step = tf.train.get_or_create_global_step()
+    global_step = tf.compat.v1.train.get_or_create_global_step()
 
     l1_weight = float(10.0) * (float(0.8) **\
         tf.dtypes.cast((global_step//960),tf.float32))
     texture = create_texture(initial_file)
-    outputs = tf.contrib.resampler.resampler(\
+    outputs = tfa.image.resampler(\
         texture, data.uv_src, name='resampler')
     mask3 = tf.concat((data.mask, data.mask, data.mask), axis=3)
     outputs = outputs * mask3
@@ -111,7 +115,7 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
     input = tf.concat([data.color_src, data.color_tar - data.color_src], axis=3)
     #input, ops_real = concat_image_pool(input)
     with tf.name_scope("real_discriminator"):
-        with tf.variable_scope("discriminator"):
+        with tf.compat.v1.variable_scope("discriminator"):
             # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
             predict_real, mask_real = create_discriminator(input[:,sy:,sx:,:],\
                 data.mask[:,sy:,sx:,:])
@@ -120,14 +124,14 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
     input = tf.concat([data.color_src, outputs - data.color_src], axis=3)
 
     with tf.name_scope("fake_discriminator"):
-        with tf.variable_scope("discriminator", reuse=True):
+        with tf.compat.v1.variable_scope("discriminator", reuse=True):
             # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
             predict_fake, mask_fake = create_discriminator(input[:,sy:,sx:,:],\
                 data.mask[:,sy:,sx:,:])
 
     style_weight = 1e-6
     with tf.name_scope("generator_loss"):
-        gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
+        gen_loss_GAN = tf.reduce_mean(-tf.math.log(predict_fake + EPS))
         gen_loss_L1 = tf.reduce_sum(tf.reduce_sum(\
             tf.abs(data.color_tar[:,sy:,sx:,:] - outputs[:,sy:,sx:,:]),axis=3)\
             * data.mask[:,sy:,sx:,0]) / (tf.reduce_sum(data.mask[:,sy:,sx:])\
@@ -135,14 +139,14 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
         gen_loss = gen_loss_L1 * l1_weight + gen_loss_GAN
 
     with tf.name_scope("discriminator_loss"):
-        discrim_loss = tf.reduce_sum((-(tf.log(predict_real + EPS)\
-            + tf.log(1 - predict_fake + EPS))) * mask_real)\
+        discrim_loss = tf.reduce_sum((-(tf.math.log(predict_real + EPS)\
+            + tf.math.log(1 - predict_fake + EPS))) * mask_real)\
             / (tf.reduce_sum(mask_real) + EPS)
 
     with tf.name_scope("discriminator_train"):
-        discrim_tvars = [var for var in tf.trainable_variables()\
+        discrim_tvars = [var for var in tf.compat.v1.trainable_variables()\
             if var.name.startswith("discriminator")]
-        discrim_optim = tf.train.AdamOptimizer(lr_D, beta1)
+        discrim_optim = tf.compat.v1.train.AdamOptimizer(lr_D, beta1)
         discrim_loss_final = tf.cond(discrim_loss > gen_loss_GAN,\
             lambda: discrim_loss, lambda: discrim_loss * 0)
         discrim_grads_and_vars = discrim_optim.compute_gradients(\
@@ -151,14 +155,14 @@ def create_model(data,lr_D,lr_G,beta1,initial_file):
 
     with tf.name_scope("generator_train"):
         with tf.control_dependencies([discrim_train]):
-            gen_tvars = [var for var in tf.trainable_variables()\
+            gen_tvars = [var for var in tf.compat.v1.trainable_variables()\
                 if var.name.startswith("texture")]
-            gen_optim = tf.train.AdamOptimizer(lr_G, beta1)
+            gen_optim = tf.compat.v1.train.AdamOptimizer(lr_G, beta1)
             gen_grads_and_vars = gen_optim.compute_gradients(\
                 gen_loss, var_list=gen_tvars)
             gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
-    incr_global_step = tf.assign(global_step, global_step+1)
+    incr_global_step = tf.compat.v1.assign(global_step, global_step+1)
 
     return Model(
         predict_real=predict_real,

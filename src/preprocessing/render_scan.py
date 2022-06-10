@@ -49,13 +49,11 @@ def Project(info, world2cam, point):
 
 tex_dim = 1024
 
-sens_file = data_path + '/scan/' + sys.argv[1] + '_video.sens'
+sens_file = data_path + '/scan/' + sys.argv[1] + '.sens'
 obj_file = data_path + '/shape/' + sys.argv[1] + '.obj'
 
 V, F, VT, FT, VN, FN = loader.LoadOBJ(obj_file)
-
 colors, depths, cam2worlds, intrinsic = loader.LoadSens(sens_file)
-
 if not os.path.exists(data_path + '/ObjectScan_video'):
 	os.mkdir(data_path + '/ObjectScan_video')
 if not os.path.exists(data_path + '/ObjectScan_video/%s'%(sys.argv[1])):

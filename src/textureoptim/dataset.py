@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 import argparse
 import glob
@@ -48,17 +48,21 @@ def LoadDataByID(root, index):
 
 def LoadChunk(filename):
     global cached, dictionary
-    fn = filename
+    
+    fn = filename.numpy().decode('utf-8')
+    filename = filename.numpy().decode('utf-8')
+    
     if cached and (filename in dictionary):
         return dictionary[filename]
     root = filename[:-16]
+    
     global view_pairs, intrinsic, kernel
 
     if not isinstance(filename, str):
         filename = filename.decode('utf-8')
-    index = int(filename[-15:-10])
+    index = int(filename[-15:-11])
     root = filename[:-16]
-
+    
     color_src, uv_src, depth_src, mask_src, world2cam_src\
         = LoadDataByID(root, index)
 
@@ -66,7 +70,7 @@ def LoadChunk(filename):
     if rindex != index:
         color_tar, uv_tar, depth_tar, mask_tar, world2cam_tar\
             = LoadDataByID(root, rindex)
-        
+
         cam2world_src = np.linalg.inv(world2cam_src)
         src2tar = np.transpose(np.dot(world2cam_tar, cam2world_src))
 
@@ -142,9 +146,9 @@ def LoadChunk(filename):
         np.reshape(mask,(mask.shape[0],mask.shape[1],1))
 
 def create_dataset(parent_dir, texture_name, Cache=False):
-    print(texture_name)
+
     p = cv2.imread(texture_name)
-    
+
     global tex_dim_height, tex_dim_width, cached
     cached = Cache
     tex_dim_height = p.shape[0]
@@ -158,7 +162,6 @@ def create_dataset(parent_dir, texture_name, Cache=False):
 
     kernel = np.ones((11,11),np.uint8)
     color_paths = sorted(glob.glob(os.path.join(parent_dir, "*_color.png")))
-
     for i in range(len(view_pairs)):
         if type(view_pairs[i]) == type([]):
             p = view_pairs[i].copy()
@@ -172,8 +175,7 @@ def create_dataset(parent_dir, texture_name, Cache=False):
 
     #color_paths = color_paths[:1]
     dataset = tf.data.Dataset.from_tensor_slices(color_paths)
-
-    dataset = dataset.map(lambda filename: tf.py_func(LoadChunk, [filename],
+    dataset = dataset.map(lambda filename: tf.py_function(LoadChunk, [filename],
         [tf.float32, tf.float32, tf.float32, tf.float32]))
 
     dataset = dataset.repeat()
@@ -181,7 +183,7 @@ def create_dataset(parent_dir, texture_name, Cache=False):
     dataset = dataset.shuffle(1)
     dataset = dataset.prefetch(1)
 
-    iterator = dataset.make_one_shot_iterator()
+    iterator = tf.compat.v1.data.make_one_shot_iterator(dataset)
     next_element = iterator.get_next()
     color_src = next_element[0]
     color_tar = next_element[1]

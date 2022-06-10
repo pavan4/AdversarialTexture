@@ -24,9 +24,9 @@ option(BUILD_OPENMP "Enable support for OpenMP" OFF)
 option(BUILD_LOG "Enable verbose log" OFF)
 
 include_directories(.)
-include_directories(/orion/u/jingweih/3rd/opencv/include)
-include_directories(/orion/u/jingweih/3rd/glm)
-link_directories(/orion/u/jingweih/3rd/opencv/lib)
+include_directories(/usr/include/opencv/include)
+include_directories(/usr/include/glm)
+link_directories(/usr/lib/x86_64-linux-gnu/)
 set(
     sens_SRC
     parser.cpp
@@ -39,6 +39,7 @@ add_library(
 
 target_link_libraries(
     Sens
+    opencv_imgcodecs
     opencv_core
     opencv_highgui
     opencv_imgproc
