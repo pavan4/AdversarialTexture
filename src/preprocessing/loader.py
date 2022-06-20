@@ -2,6 +2,46 @@ from ctypes import *
 import numpy as np
 Sens = cdll.LoadLibrary('./Rasterizer/libSens.so')
 from SensorData import SensorData
+import os
+import cv2
+
+def LoadStreem(folder):
+
+    _, _, files = next(os.walk(folder))
+    frames = int(len(files)/4)
+
+    cam2worlds = np.zeros((frames, 4, 4), dtype='float32')
+    intrin =  np.loadtxt(f'{folder}/i_0000.txt')
+    intrinsic = np.zeros((4,4), dtype='float32')
+    intrinsic[0,0] = intrin[0]*(640/1920)
+    intrinsic[1,1] = intrin[1]*(640/1920)
+    intrinsic[0,2] = intrin[2]*(640/1920)
+    intrinsic[1,2] = intrin[3]*(480/1440)
+    intrinsic[2,2] = 1.0
+
+    colors = np.zeros((frames, 480, 640, 3), dtype='uint8')
+    depths = np.zeros((frames, 480, 640), dtype='float32')
+
+    for index, i in enumerate(range(frames)):
+        depth = cv2.imread(folder+"/frame-%06d.depth.png"%i, -1)
+        depth = cv2.resize(depth, (640, 480))
+        depth = depth/5.0 
+        depths[i,:,:] = depth
+
+        color = cv2.imread(folder+"/frame-%06d.color.png"%i)
+        color = cv2.resize(color, (640, 480))
+        color = cv2.cvtColor(color, cv2.COLOR_BGR2RGB)
+        colors[i,:,:,:] = color 
+        
+        pose = np.loadtxt(f'{folder}/p_{i:04}.txt')
+        pose = pose.dot(
+            np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,1]])
+        )
+        #pose = np.linalg.inv(pose)
+        cam2worlds[i,:,:] = pose 
+
+    return colors, depths, cam2worlds, intrinsic 
+
 
 def LoadSens(filename):
     sd = SensorData(filename)
@@ -32,7 +72,6 @@ def LoadSens(filename):
 def LoadSens1(filename):
     print(filename)
     Sens.Parse(c_char_p(filename.encode('utf8')))
-    print("*****")
     depth_width = Sens.DW()
     depth_height = Sens.DH()
     color_width = Sens.CW()
@@ -75,7 +114,7 @@ def LoadOBJ(filename):
             for j in range(1, 4):
                 w = words[j].split('/')
                 f.append(int(w[0]) - 1)
-                ft.append(int(w[0]) - 1)
+                ft.append(int(w[1]) - 1)
                 fn.append(int(w[2]) - 1)
             F.append(f)
             FT.append(ft)

@@ -47,13 +47,17 @@ def Project(info, world2cam, point):
 	y = points[:,1] / points[:,2] * info[1,1] + info[1,2]
 	return np.array([x,y,points[:,2]])
 
-tex_dim = 1024
+tex_dim = 2048
 
-sens_file = data_path + '/scan/' + sys.argv[1] + '.sens'
-obj_file = data_path + '/shape/' + sys.argv[1] + '.obj'
+#sens_file = data_path + '/scan/' + sys.argv[1] + '.sens'
+#obj_file = data_path + '/shape/' + sys.argv[1] + '.obj'
+sens_file = "/home/ubuntu/AdversarialTexture/data/streem/frames_export"
+obj_file = "/home/ubuntu/AdversarialTexture/data/streem/streem_room6.obj"
 
 V, F, VT, FT, VN, FN = loader.LoadOBJ(obj_file)
-colors, depths, cam2worlds, intrinsic = loader.LoadSens(sens_file)
+colors, depths, cam2worlds, intrinsic = loader.LoadStreem(sens_file)
+#colors, depths, cam2worlds, intrinsic = loader.LoadSens1(sens_file)
+print("***", depths[0,:,:].shape, V.shape, F.shape, VT.shape, FT.shape, VN.shape, FN.shape)
 if not os.path.exists(data_path + '/ObjectScan_video'):
 	os.mkdir(data_path + '/ObjectScan_video')
 if not os.path.exists(data_path + '/ObjectScan_video/%s'%(sys.argv[1])):
@@ -78,18 +82,19 @@ fp.close()
 Render.InitializeCamera(640,480,
 	c_float(intrinsic[0,0]), c_float(intrinsic[1,1]), c_float(intrinsic[0,2]), c_float(intrinsic[1,2]))
 
+print('rasterize ', VT.shape , FT.shape, tex_dim )
 vweights, findices = rasterizer.RasterizeTexture(VT, FT, tex_dim, tex_dim)
 
-print('generate textiles')
+print('generate textiles', V.shape, F.shape, VN.shape, FN.shape, vweights.shape ,findices.shape)
 points, normals, coords = rasterizer.GeneratePoints(V, F, VN, FN, vweights, findices)
 
-print('paint colors')
+print('paint colors', points.shape, normals.shape, coords.shape)
 point_colors = np.zeros((points.shape[0], 4), dtype='float32')
 
 for i in range(colors.shape[0]):
-	painter.ProjectPaint(points, normals, point_colors, colors[i], depths[i], np.linalg.inv(cam2worlds[i]).astype('float32'), intrinsic)
+    painter.ProjectPaint(points, normals, point_colors, colors[i], depths[i], np.linalg.inv(cam2worlds[i]).astype('float32'), intrinsic)
 
-print('prepare final texture')
+print('prepare final texture', coords.shape)
 original_texture = np.zeros((tex_dim, tex_dim, 3), dtype='uint8')
 painter.PaintToTexturemap(original_texture, point_colors, coords)
 
@@ -99,34 +104,34 @@ np.savetxt(data_path + '/ObjectScan_video/%s/intrinsic.txt'%(sys.argv[1]), intri
 context = SetMesh(V, F)
 
 for i in range(colors.shape[0]):
-	print('view %d of %d...'%(i, colors.shape[0]))
-	world2cam = np.linalg.inv(cam2worlds[i]).astype('float32')
-	render(context, world2cam)
-	depth = getDepth()
+    print('view %d of %d...'%(i, colors.shape[0]))
+    world2cam = np.linalg.inv(cam2worlds[i]).astype('float32')
+    render(context, world2cam)
+    depth = getDepth()
 
-	vindices, vweights, findices = getVMap(context)
+    vindices, vweights, findices = getVMap(context)
 
-	uv = np.zeros((findices.shape[0], findices.shape[1], 3), dtype='float32')
-	for j in range(2):
-		uv[:,:,j] = 0
-		for k in range(3):
-			vind = FT[findices][:,:,k]
-			uv_ind = VT[vind][:,:,j]
-			uv[:,:,j] += vweights[:,:,k] * uv_ind
+    uv = np.zeros((findices.shape[0], findices.shape[1], 3), dtype='float32')
+    for j in range(2):
+        uv[:,:,j] = 0
+        for k in range(3):
+            vind = FT[findices][:,:,k]
+            uv_ind = VT[vind][:,:,j]
+            uv[:,:,j] += vweights[:,:,k] * uv_ind
 
-	#mask0 = ((np.abs(depth - depths[i]*1e-3) < 0.05) * (depths[i] > 0)).astype('uint8')
+    #mask0 = ((np.abs(depth - depths[i]*1e-3) < 0.05) * (depths[i] > 0)).astype('uint8')
 
-	mask = (findices != -1)# * mask0
+    mask = (findices != -1)# * mask0
 
-	style = cv2.resize(colors[i], (depths[i].shape[1], depths[i].shape[0]), interpolation=cv2.INTER_LINEAR)
-	for j in range(3):
-		style[:,:,j] *= mask
-		uv[:,:,j] *= mask
+    style = cv2.resize(colors[i], (depths[i].shape[1], depths[i].shape[0]), interpolation=cv2.INTER_LINEAR)
+    for j in range(3):
+        style[:,:,j] *= mask
+        uv[:,:,j] *= mask
 
-	depth *= mask
+    depth *= mask
 
-	sio.imsave(data_path + '/ObjectScan_video/%s/%05d_mask.png'%(sys.argv[1], i), (mask*255).astype('uint8'))
-	sio.imsave(data_path + '/ObjectScan_video/%s/%05d_color.png'%(sys.argv[1], i), style)
-	np.savez_compressed(data_path + '/ObjectScan_video/%s/%05d_depth.npz'%(sys.argv[1], i), depth)
-	np.savez_compressed(data_path + '/ObjectScan_video/%s/%05d_uv.npz'%(sys.argv[1], i), uv[:,:,:2])
-	np.savetxt(data_path + '/ObjectScan_video/%s/%05d_pose.txt'%(sys.argv[1], i), world2cam)
+    sio.imsave(data_path + '/ObjectScan_video/%s/%05d_mask.png'%(sys.argv[1], i), (mask*255).astype('uint8'))
+    sio.imsave(data_path + '/ObjectScan_video/%s/%05d_color.png'%(sys.argv[1], i), style)
+    np.savez_compressed(data_path + '/ObjectScan_video/%s/%05d_depth.npz'%(sys.argv[1], i), depth)
+    np.savez_compressed(data_path + '/ObjectScan_video/%s/%05d_uv.npz'%(sys.argv[1], i), uv[:,:,:2])
+    np.savetxt(data_path + '/ObjectScan_video/%s/%05d_pose.txt'%(sys.argv[1], i), world2cam)
